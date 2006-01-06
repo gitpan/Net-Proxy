@@ -1,0 +1,23 @@
+---
+name: Net-Proxy
+version: 0.01
+author:
+  - "Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>."
+abstract: Framework for proxying network connections in many ways
+license: perl
+requires:
+  IO::Select: 0
+  IO::Socket: 0
+  Scalar::Util: 0
+  perl: 5.6
+provides:
+  Net::Proxy:
+    file: lib/Net/Proxy.pm
+    version: 0.01
+  Net::Proxy::Connector:
+    file: lib/Net/Proxy/Connector.pm
+  Net::Proxy::Connector::dummy:
+    file: lib/Net/Proxy/Connector/dummy.pm
+  Net::Proxy::Connector::tcp:
+    file: lib/Net/Proxy/Connector/tcp.pm
+generated_by: Module::Build version 0.26
