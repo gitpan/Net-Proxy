@@ -3,7 +3,6 @@ use strict;
 use warnings;
 use IO::Socket::INET;
 use t::Util;
-use POSIX qw( INT_MAX );
 
 use Net::Proxy;
 
@@ -28,14 +27,12 @@ my @lines = (
 );
 
 # compute a seed and show it
-my $seed = @ARGV ? $ARGV[0] : int rand INT_MAX;
-diag "Random seed $seed";
-srand $seed;
+init_rand( @ARGV );
 
 # compute random configurations
 my @confs = sort { $a->[0] <=> $b->[0] }
     map { [ int rand 16, int rand 8 ] } 1 .. 3;
-my $tests = my $first = int rand 8;
+my $tests = 1 + ( my $first = int rand 8 );
 $tests += $_->[1] for @confs;
 
 # show the config if 
@@ -45,16 +42,12 @@ if( @ARGV ) {
 plan tests => $tests;
 
 # lock 2 ports
-my @free        = find_free_ports(2);
-my $proxy_port  = $free[0]->sockport();
-my $server_port = $free[1]->sockport();
+my @ports = find_free_ports(3);
 
 SKIP: {
-    skip "Not enough available ports", $tests if @free < 2;
+    skip "Not enough available ports", $tests if @ports < 3;
 
-    # close the ports before forking
-    $_->close() for @free;
-
+    my ($proxy_port, $server_port, $fake_port) = @ports;
     my $pid = fork;
 
 SKIP: {
@@ -78,6 +71,23 @@ SKIP: {
 
             $proxy->register();
 
+            # test unregister()
+            my $fake_proxy = Net::Proxy->new(
+                {   in => {
+                        type => 'tcp',
+                        host => 'localhost',
+                        port => $fake_port
+                    },
+                    out => {
+                        type => 'tcp',
+                        host => 'localhost',
+                        port => $server_port
+                    },
+                }
+            );
+            $fake_proxy->register();
+            $fake_proxy->unregister();
+
             Net::Proxy->mainloop( @confs + 1 );
             exit;
         }
@@ -100,6 +110,12 @@ SKIP: {
                     ]
                 );
                 %pairs = ( $pair => $pair );
+            }
+
+            # check the other proxy is not listening
+            {
+                my $client = connect_to_port($fake_port);
+                is( $client, undef, "Second proxy not here: $!" );
             }
 
             my $step = my $n = my $count = 0;
@@ -131,12 +147,18 @@ SKIP: {
                         next PAIR;
                     }
 
-                    # send data through the connection
+                    # fetch data to send
                     $n %= @lines;
                     my $line = $lines[$n];
-                    print { $pair->[ $step % 2 ] } $line;
-                    is( $pair->[ 1 - $step % 2 ]->getline(),
-                        $line, "Step $step: line $n sent through pair $pair->[3]" );
+
+                    # randomly swap client/server
+                    @{$pair}[ 0, 1 ] = random_swap(@{$pair}[ 0, 1 ]);
+
+                    # send data through the connection
+                    print { $pair->[0] } $line;
+                    is( $pair->[1]->getline(),
+                        $line,
+                        "Step $step: line $n sent through pair $pair->[3]" );
                     $pair->[2]--;
                     $n++;
 

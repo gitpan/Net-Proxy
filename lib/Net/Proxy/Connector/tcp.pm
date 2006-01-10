@@ -1,31 +1,18 @@
 package Net::Proxy::Connector::tcp;
 use strict;
 use warnings;
-use Carp;
 use IO::Socket::INET;
 
 use Net::Proxy::Connector;
 our @ISA = qw( Net::Proxy::Connector );
 
 # IN
-sub listen {
-    my $self = shift;
-    my $sock = IO::Socket::INET->new(
-        Listen    => 1,
-        LocalAddr => $self->{host},
-        LocalPort => $self->{port},
-        Proto     => 'tcp',
-        ReuseAddr => 1,
-    );
-    croak $! unless $sock;
-
-    return $sock;
-}
+*listen = \&Net::Proxy::Connector::raw_listen;
 
 sub accept_from {
     my ($self, $listen) = @_;
     my $sock = $listen->accept();
-    croak $! unless $sock;
+    die $! unless $sock;
     return $sock;
 }
 
@@ -37,7 +24,7 @@ sub connect {
         PeerPort  => $self->{port},
         Proto     => 'tcp',
     );
-    croak $! unless $sock;
+    die $! unless $sock;
     return $sock;
 }
 
@@ -81,12 +68,15 @@ The connector accept the following options:
 
 =over 4
 
-=item host
+=item *
 
-I<(optional)> The listening address. If not given, the default is
-C<localhost>.
+host
 
-=item port
+The listening address. If not given, the default is C<localhost>.
+
+=item *
+
+port
 
 The listening port.
 
@@ -96,11 +86,15 @@ The listening port.
 
 =over 4
 
-=item host
+=item *
+
+host
 
 The remote host.
 
-=item port
+=item *
+
+port
 
 The remote port.
 
@@ -110,9 +104,11 @@ The remote port.
 
 Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>.
 
-=head1 COPYRIGHT & LICENSE
+=head1 COPYRIGHT
 
 Copyright 2006 Philippe 'BooK' Bruhat, All Rights Reserved.
+
+=head1 LICENSE
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

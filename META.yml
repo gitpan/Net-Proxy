@@ -1,6 +1,6 @@
 ---
 name: Net-Proxy
-version: 0.01
+version: 0.02
 author:
   - "Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>."
 abstract: Framework for proxying network connections in many ways
@@ -10,12 +10,16 @@ requires:
   IO::Socket: 0
   Scalar::Util: 0
   perl: 5.6
+recommends:
+  LWP::UserAgent: 2
 provides:
   Net::Proxy:
     file: lib/Net/Proxy.pm
-    version: 0.01
+    version: 0.02
   Net::Proxy::Connector:
     file: lib/Net/Proxy/Connector.pm
+  Net::Proxy::Connector::connect:
+    file: lib/Net/Proxy/Connector/connect.pm
   Net::Proxy::Connector::dummy:
     file: lib/Net/Proxy/Connector/dummy.pm
   Net::Proxy::Connector::tcp:

@@ -3,6 +3,7 @@ use strict;
 use warnings;
 use Carp;
 use Scalar::Util qw( refaddr );
+use Net::Proxy;
 
 my %PROXY_OF;
 
@@ -11,7 +12,9 @@ my %PROXY_OF;
 #
 sub new {
     my ( $class, $args ) = @_;
-    return bless $args ? {%$args} : {}, $class;
+    my $self = bless $args ? {%$args} : {}, $class;
+    $self->init() if $self->can('init');
+    return $self;
 }
 
 #
@@ -26,6 +29,16 @@ sub set_proxy {
 
 sub get_proxy { return $PROXY_OF{ refaddr $_[0] }; }
 
+sub is_in {
+    my $id = refaddr $_[0];
+    return $id == refaddr $PROXY_OF{$id}->in_connector();
+}
+
+sub is_out {
+    my $id = refaddr $_[0];
+    return $id == refaddr $PROXY_OF{$id}->out_connector();
+}
+
 #
 # the method that creates all the sockets
 #
@@ -38,15 +51,22 @@ sub new_connection_on {
     Net::Proxy->watch_sockets($sock);
 
     # connect to the destination
-    my $out  = $self->get_proxy()->out_connector();
-    my $peer = $out->connect();
+    my $proxy = $self->get_proxy();
+    my $out   = $proxy->out_connector();
+    my $peer  = eval { $out->connect(); };
+    if ($@) { # connect() dies if the connection fails
+        $@ =~ s/ at .*?\z//s;
+        carp "connect() failed with error '$@'";
+        Net::Proxy->close_sockets( $sock );
+        return;
+    }
     if ($peer) {    # $peer is undef for Net::Proxy::Connector::dummy
         Net::Proxy->watch_sockets($peer);
         Net::Proxy->set_connector( $peer, $out );
         Net::Proxy->set_peer( $peer, $sock );
         Net::Proxy->set_peer( $sock, $peer );
     }
-
+    $proxy->stat_inc_opened();
     return;
 }
 
@@ -67,8 +87,9 @@ sub raw_read_from {
     }
 
     # connection closed
-    if ( $read == 0 || $close ) {
-        $self->get_proxy()->close_sockets($sock);
+    if ( $close || $read == 0 ) {
+        my $peer = Net::Proxy->get_peer($sock);
+        $self->get_proxy()->close_sockets( $sock, $peer );
         return;
     }
 
@@ -84,6 +105,21 @@ sub raw_write_to {
                      $sock->sockhost(), $sock->sockport(), $!, "$!");
     }
     return;
+}
+
+# the most basic possible listen()
+sub raw_listen {
+    my $self = shift;
+    my $sock = IO::Socket::INET->new(
+        Listen    => 1,
+        LocalAddr => $self->{host},
+        LocalPort => $self->{port},
+        Proto     => 'tcp',
+        ReuseAddr => 1,
+    );
+    die $! unless $sock;
+
+    return $sock;
 }
 
 1;
@@ -149,6 +185,16 @@ Define the proxy that "owns" the connector.
 
 Return the C<Net::Proxy> object that "owns" the connector.
 
+=item is_in()
+
+Return a boolean value indicating if the C<Net::Proxy::Connector>
+object is the C<in> connector of its proxy.
+
+=item is_out()
+
+Return a boolean value indicating if the C<Net::Proxy::Connector>
+object is the C<out> connector of its proxy.
+
 =item new_connection_on( $socket )
 
 This method is called by C<Net::Proxy> to handle incoming connections,
@@ -165,12 +211,28 @@ C<read_from()> methods, to fetch raw data on a socket.
 This method can be used by C<Net::Proxy::Connector> subclasses in their
 C<write_to()> methods, to send raw data on a socket.
 
+=item raw_listen( )
+
+This method can be used by C<Net::Proxy::Connector> subclasses in their
+C<listen()> methods, to create a listening socket on their C<host>
+and C<port> parameters.
+
 =back
 
 =head1 Subclass methods
 
 The following methods should be defined in C<Net::Proxy::Connector>
 subclasses:
+
+=head2 Initialisation
+
+=over 4
+
+=item init()
+
+This method initalise the connector.
+
+=back
 
 =head2 Processing incoming/outgoing data
 
@@ -194,6 +256,8 @@ scheme.
 =item listen()
 
 Initiate listening sockets and return them.
+This method can use the C<raw_listen()> method to do the low-listen
+listen call.
 
 =item accept_from( $socket )
 
@@ -216,9 +280,11 @@ Return a socket connected to the remote server.
 
 Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>.
 
-=head1 COPYRIGHT & LICENSE
+=head1 COPYRIGHT
 
 Copyright 2006 Philippe 'BooK' Bruhat, All Rights Reserved.
+
+=head1 LICENSE
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

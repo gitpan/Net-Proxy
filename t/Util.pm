@@ -6,39 +6,35 @@ use IO::Socket::INET;
 # we can use sockport() to learn the port values
 # and close() to close the socket just before reopening it
 sub find_free_ports {
-    my $n    = shift;
-    my $port = 30000;
+    my $n = shift;
     my @socks;
 
-    while ( @socks < $n && $port > 1023 ) {
-
-        my $sock = IO::Socket::INET->new(
-            Listen    => 1,
-            LocalAddr => 'localhost',
-            LocalPort => $port,
-            Proto     => 'tcp',
-        );
-
-        push @socks, $sock if defined $sock;
-        $port--;
+    for ( 1 .. $n ) {
+        my $sock = listen_on_port(0);
+        if ($sock) {
+            push @socks, $sock;
+        }
     }
+    my @ports = map { $_->sockport() } @socks;
+    diag "ports: @ports";
 
-    # failure
-    return if @socks != $n;
-
-    return @socks;
+    # close the sockets and return the ports
+    $_->close() for @socks;
+    return @ports;
 }
 
 # return a socket connected to port $port on localhost
 sub connect_to_port {
-    my ($port) = @_;
+    my ($port, %opts) = @_;
     return IO::Socket::INET->new(
         PeerAddr => 'localhost',
         PeerPort => $port,
         Proto    => 'tcp',
+        %opts
     );
 }
 
+# return a socket listening on $port on localhost
 sub listen_on_port {
     my ($port) = @_;
     return IO::Socket::INET->new(
@@ -47,6 +43,34 @@ sub listen_on_port {
         LocalPort => $port,
         Proto     => 'tcp',
     );
+}
+
+# compute a seed and show it
+use POSIX qw( INT_MAX );
+
+sub init_rand {
+    my $seed = @_ ? $_[0] : int rand INT_MAX;
+    diag "Random seed $seed";
+    srand $seed;
+}
+
+# randomly exchange (or not) a pair
+sub random_swap {
+    my ( $first, $second ) = @_;
+    return rand > 0.5 ? ( $first, $second ) : ( $second, $first );
+}
+
+# skip but fail
+# extends Test::More
+use Test::Builder;
+sub skip_fail {
+    my ($why, $how_many) = @_;
+    my $Test = Test::Builder->new();
+    for( 1 .. $how_many ) {
+        $Test->ok( 0, $why );
+    }
+    no warnings;
+    last SKIP;
 }
 
 1;

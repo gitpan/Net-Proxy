@@ -5,20 +5,21 @@ use Carp;
 use Scalar::Util qw( refaddr );
 use IO::Select;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 # interal socket information table
 my %SOCK_INFO;
 my %LISTENER;
 my $SELECT;
 my %PROXY;
-my $CONNECTIONS;
+my %STATS;
 
 # Net::Proxy attributes
 my %CONNECTOR = (
     in  => {},
     out => {},
 );
+my %LOGGER;
 
 #
 # constructor
@@ -79,12 +80,25 @@ sub out_connector { return $CONNECTOR{out}{ refaddr $_[0] }; }
 }
 
 #
+# create statistical methods
+#
+for my $info (qw( opened closed )) {
+    no strict 'refs';
+    *{"stat_inc_$info"} = sub {
+        $STATS{ refaddr $_[0]}{$info}++;
+        $STATS{total}{$info}++;
+    };
+    *{"stat_$info"}       = sub { $STATS{ refaddr $_[0]}{$info} || 0; };
+    *{"stat_total_$info"} = sub { $STATS{total}{$info} || 0; };
+}
+
+#
 # socket-related methods
 #
 sub add_listeners {
     my ( $class, @socks ) = @_;
     for my $sock (@socks) {
-        $LISTENER{ refaddr $sock} = 1;
+        $LISTENER{ refaddr $sock} = $sock;
     }
     return;
 }
@@ -102,12 +116,16 @@ sub close_sockets {
     for my $sock (@socks) {
 
         # clean up connector
-        my $conn = Net::Proxy->get_connector($sock);
-        $conn->close($sock) if $conn->can('close');
+        if ( my $conn = Net::Proxy->get_connector($sock) ) {
+            $conn->close($sock) if $conn->can('close');
 
-        # count connections to the proxy "in connectors" only
-        if( refaddr $conn == refaddr $conn->get_proxy()->in_connector() ) {
-            $CONNECTIONS++;
+            # count connections to the proxy "in connectors" only
+            my $proxy = $conn->get_proxy();
+            if ( refaddr $conn == refaddr $proxy->in_connector()
+                && !_is_listener($sock) )
+            {
+                $proxy->stat_inc_closed();
+            }
         }
 
         # clean up internal structures
@@ -139,7 +157,6 @@ sub mainloop {
     $max_connections ||= 0;
 
     # initialise the loop
-    $CONNECTIONS = 0;
     $SELECT = IO::Select->new();
 
     # initialise all proxies
@@ -157,7 +174,6 @@ sub mainloop {
         for my $sock (@ready) {
             if ( _is_listener($sock) ) {
 
-                # FIXME eval {} for failure
                 # accept the new connection and connect to the destination
                 Net::Proxy->get_connector($sock)->new_connection_on($sock);
             }
@@ -165,19 +181,34 @@ sub mainloop {
 
                 # read the data
                 my $peer = Net::Proxy->get_peer($sock);
-                my $data
-                    = Net::Proxy->get_connector($sock)->read_from($sock);
-                next SOCKET if !defined $data;
+                if ( my $conn = Net::Proxy->get_connector($sock) ) {
+                    my $data = $conn->read_from($sock);
+                    next SOCKET if !defined $data;
 
-                # TODO filtering by the proxy
+                    # TODO filtering by the proxy
 
-                Net::Proxy->get_connector($peer)->write_to( $peer, $data );
+                    Net::Proxy->get_connector($peer)->write_to( $peer, $data );
+                }
             }
         }
     }
     continue {
-        last if $CONNECTIONS == $max_connections;
+        if( $max_connections ) {
+
+            # stop after that many connections
+            last if Net::Proxy->stat_total_closed() == $max_connections;
+
+            # prevent new connections
+            if ( %LISTENER
+                && Net::Proxy->stat_total_opened() == $max_connections )
+            {
+                Net::Proxy->close_sockets( values %LISTENER );
+            }
+        }
     }
+
+    # close the listening sockets
+    Net::Proxy->close_sockets( values %LISTENER );
 }
 
 #
@@ -257,9 +288,23 @@ Add the given sockets to the watch list.
 
 Close the given sockets and cleanup the related internal structures.
 
+=item add_loggers( @loggers )
+
+Add the given loggers to the list of logging objects managed by the class.
+
+They all must have a C<log()> method that accepts a list of pair with
+arguments C<message> and C<level>, just like C<Log::Dispatch>.
+Levels are exactly the same as those used by C<Log::Dispatch>. Internally,
+C<Net::Proxy> will only use numerical values for C<level>.
+
+=item log( message => $mesg, level => $level )
+
+Log a message that will be dispatched to the loggers registered with
+C<add_logger()>.
+
 =back
 
-Some of the class methods are related to the socket objects handling
+Some of the class methods are related to the socket objects that handle
 the actual connections.
 
 =over 4
@@ -311,6 +356,34 @@ connection and handles the data coming from the "server" side.
 
 =back
 
+=head2 Statistical methods
+
+The following methods manage some statistical information
+about the individual proxies:
+
+=over 4
+
+=item stat_inc_opened()
+
+=item stat_inc_closed()
+
+Increment the "opened" or "closed" connection counter for this proxy.
+
+=item stat_opened()
+
+=item stat_closed()
+
+Return the count of "opened" or "closed" connections for this proxy.
+
+=item stat_total_opened()
+
+=item stat_total_closed()
+
+Return the total count of "opened" or "closed" connection across
+all proxy objects.
+
+=back
+
 =head1 AVAILABLE CONNECTORS
 
 All connection types are provided with the help of specialised classes.
@@ -322,6 +395,11 @@ class.
 This is the simplest possible proxy. On the "in" side, it sits waiting
 for incoming connections, and on the "out" side, it connects to the
 configured host/port.
+
+=head2 connect (C<Net::Proxy::Connector::connect>)
+
+This proxy can connect to a TCP server though a web proxy that
+accepts HTTP CONNECT requests.
 
 =head2 dummy (C<Net::Proxy::Connector::dummy>)
 
@@ -337,6 +415,14 @@ classes and the parameters their constructors recognise.
     ------------+-----------------+----------------
      tcp        | host            | host
                 | port            | port
+    ------------+-----------------+----------------
+     connect    | N/A             | host
+                |                 | port
+                |                 | proxy_host
+                |                 | proxy_port
+                |                 | proxy_user
+                |                 | proxy_pass
+                |                 | proxy_agent
     ------------+-----------------+----------------
      dummy      | N/A             | N/A
 
@@ -387,14 +473,21 @@ This requires writing C<Net::Proxy::Connector::httptunnel2>
 
 =item *
 
+Implement RFC 3093 - Firewall Enhancement Protocol (FEP), as
+C<Net::Proxy::Connector::FEP>. This RFC was published on April 1, 2001.
+
+=item *
+
 Add support for filters, so that the data can be transformed on the fly
 (could be useful to deceive intrusion detection systems, for example).
 
 =back
 
-=head1 COPYRIGHT & LICENSE
+=head1 COPYRIGHT
 
 Copyright 2006 Philippe 'BooK' Bruhat, All Rights Reserved.
+ 
+=head1 LICENSE
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
