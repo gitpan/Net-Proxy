@@ -20,7 +20,7 @@ sub accept_from {
 sub connect {
     my ($self) = @_;
     my $sock = IO::Socket::INET->new(
-        PeerAddr  => $self->{host},
+        PeerAddr  => $self->{host} || 'localhost',
         PeerPort  => $self->{port},
         Proto     => 'tcp',
     );
@@ -48,8 +48,8 @@ Net::Proxy::Connector::tcp - Net::Proxy connector for standard tcp proxies
     use Net::Proxy;
 
     my $proxy = Net::Proxy->new(
-        in  => { proto => tcp, port => '6789' },
-        out => { proto => tcp, host => 'remotehost', port => '9876' },
+        in  => { type => tcp, port => '6789' },
+        out => { type => tcp, host => 'remotehost', port => '9876' },
     );
     $proxy->register();
 
