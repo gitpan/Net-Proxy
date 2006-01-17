@@ -5,7 +5,7 @@ use Net::Proxy;
 use LWP::UserAgent;
 use Getopt::Long;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 # default configuration
 our %CONF = (
@@ -18,6 +18,9 @@ our %CONF = (
 #
 GetOptions( \%CONF, "verbose|v+", "tunnel|T=s@", "proxy|P=s",
     "proxy-authentication|A=s", "local-only|L", "user-agent|U=s" );
+
+# set up the verbosity level
+Net::Proxy->set_verbosity( $CONF{verbose} );
 
 # check for a proxy
 if ( $CONF{proxy} ) {
@@ -230,6 +233,22 @@ decypher the spaghetti of my data structures any more. C<:-(>
 
 Version 0.05 (and higher) are based on C<Net::Proxy>, and included with
 the C<Net::Proxy> distribution.
+
+=head1 
+
+Even though it's not rocket science, B<connect-tunnel> has been cited
+in at least one academic works:
+
+=over 4
+
+=item * I<HTTP Tunnels Through Proxies>, Daniel Alman
+
+Available at SANS InfoSec Reading Room: Covert Channels
+L<http://www.sans.org/rr/whitepapers/covert/>
+
+Direct link: L<http://www.sans.org/rr/whitepapers/covert/1202.php>
+
+=back
 
 =head1 COPYRIGHT
 

@@ -5,7 +5,7 @@ use Carp;
 use Scalar::Util qw( refaddr );
 use IO::Select;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 # interal socket information table
 my %SOCK_INFO;
@@ -19,14 +19,20 @@ my %CONNECTOR = (
     in  => {},
     out => {},
 );
-my %LOGGER;
+my $VERBOSITY = 0; # be silent by default
+
+#
+# some logging-related methods
+#
+sub set_verbosity { $VERBOSITY = $_[1]; }
+sub notice { return if $VERBOSITY < 1; print STDERR "$_[1]\n"; }
+sub info   { return if $VERBOSITY < 2; print STDERR "$_[1]\n"; }
 
 #
 # constructor
 #
 sub new {
     my ( $class, $args ) = @_;
-
     my $self = bless \do { my $anon }, $class;
 
     croak "Argument to new() must be a HASHREF" if ref $args ne 'HASH';
@@ -71,7 +77,7 @@ sub out_connector { return $CONNECTOR{out}{ refaddr $_[0] }; }
 #
 {
     my $n = 0;
-    for my $attr (qw( peer connector state )) {
+    for my $attr (qw( peer connector state nick )) {
         no strict 'refs';
         my $i = $n;
         *{"get_$attr"} = sub { $SOCK_INFO{ refaddr $_[1] }[$i]; };
@@ -99,6 +105,7 @@ for my $info (qw( opened closed )) {
 sub add_listeners {
     my ( $class, @socks ) = @_;
     for my $sock (@socks) {
+        Net::Proxy->notice( 'Add ' . Net::Proxy->get_nick($sock) );
         $LISTENER{ refaddr $sock} = $sock;
     }
     return;
@@ -115,6 +122,7 @@ sub close_sockets {
     my ( $class, @socks ) = @_;
 
     for my $sock (@socks) {
+        Net::Proxy->notice( 'Closing ' . Net::Proxy->get_nick( $sock ) );
 
         # clean up connector
         if ( my $conn = Net::Proxy->get_connector($sock) ) {
@@ -169,8 +177,16 @@ sub mainloop {
         Net::Proxy->set_connector( $_, $in ) for @socks;
     }
 
+    my $continue = 1;
+    for my $signal (qw( INT HUP )) {
+        $SIG{$signal} = sub {
+            Net::Proxy->notice("Caught $signal signal");
+            $continue = 0;
+        };
+    }
+
     # loop indefinitely
-    while ( my @ready = $SELECT->can_read() ) {
+    while ( $continue and my @ready = $SELECT->can_read() ) {
     SOCKET:
         for my $sock (@ready) {
             if ( _is_listener($sock) ) {
@@ -208,8 +224,8 @@ sub mainloop {
         }
     }
 
-    # close the listening sockets
-    Net::Proxy->close_sockets( values %LISTENER );
+    # close all remaining sockets
+    Net::Proxy->close_sockets( $SELECT->handles() );
 }
 
 #
@@ -301,19 +317,17 @@ Add the given sockets to the watch list.
 
 Close the given sockets and cleanup the related internal structures.
 
-=item add_loggers( @loggers )
+=item set_verbosity( $level )
 
-Add the given loggers to the list of logging objects managed by the class.
+Set the logging level. C<0> means not messages except warnings and errors.
 
-They all must have a C<log()> method that accepts a list of pair with
-arguments C<message> and C<level>, just like C<Log::Dispatch>.
-Levels are exactly the same as those used by C<Log::Dispatch>. Internally,
-C<Net::Proxy> will only use numerical values for C<level>.
+=item notice( $message )
 
-=item log( message => $mesg, level => $level )
+Log $message to STDERR if verbosity level is equal to C<1> or more.
 
-Log a message that will be dispatched to the loggers registered with
-C<add_logger()>.
+=item info( $message )
+
+Log $message to STDERR if verbosity level is equal to C<2> or more.
 
 =back
 
@@ -338,9 +352,16 @@ Get or set the socket connector (a C<Net::Proxy::Connector> object).
 
 =item set_state( $socket, $state )
 
-Get or set the socket state. Some C<Net::Proxy::Connector> classes
+Get or set the socket state. Some C<Net::Proxy::Connector> subclasses
 may wish to use this to store some internal information about the
 socket or the connection.
+
+=item get_nick( $socket )
+
+=item set_nick( $socket, $nickname )
+
+Get or set the socket nickname. Typically used by C<Net::Proxy::Connector>
+to give informative names to socket (used in the log messages).
 
 =back
 
@@ -477,49 +498,57 @@ Here's my own wishlist:
 
 =item *
 
-Write a script fully compatible with GNU httptunnel
+Write a connector fully compatible with GNU httptunnel
 (L<http://www.nocrew.org/software/httptunnel.html>).
 
-This requires writing C<Net::Proxy::Connector::httptunnel>.
+This one will probably be named C<Net::Proxy::Connector::httptunnel>.
 
 =item *
 
 Enhance the httptunnel protocol to support multiple connections.
-
-This requires writing C<Net::Proxy::Connector::httptunnel2>
-(or whatever I may call it then).
 
 =item *
 
 Implement RFC 3093 - Firewall Enhancement Protocol (FEP), as
 C<Net::Proxy::Connector::FEP>. This RFC was published on April 1, 2001.
 
+This is probably impossible with C<Net::Proxy>, since the FEP driver is
+a rather low-level driver (at the IP level of the network stack).
+
 =item *
 
-Implement DNS tunnel connectors (see
-L<http://savannah.nongnu.org/projects/nstx/>,
+Implement DNS tunnel connectors.
+
+See L<http://savannah.nongnu.org/projects/nstx/>,
 OzymanDNS, L<http://www.doxpara.com/slides/BH_EU_05-Kaminsky.pdf>.
-L<http://thomer.com/howtos/nstx.html>).
+L<http://thomer.com/howtos/nstx.html> for examples.
 
 =item *
 
-Implement ICMP tunnel connectors (see
+Implement ICMP tunnel connectors.
+
+See
 L<http://www.linuxexposed.com/Articles/Hacking/Case-of-a-wireless-hack.html>,
 L<http://sourceforge.net/projects/itun>,
 L<http://www.cs.uit.no/~daniels/PingTunnel/>,
-L<http://thomer.com/icmptx/>).
+L<http://thomer.com/icmptx/> for examples.
 
-Since this does not imply TCP connections, it's for a distant future.
+Since ICMP implies low-level packet reading and writing, it may not be
+possible for C<Net::Proxy> to handle it.
 
 =item *
 
 Add support for filters, so that the data can be transformed on the fly
 (could be useful to deceive intrusion detection systems, for example).
 
+One callback in each direction should be enough.
+
 =item *
 
 Look for inspiration in the I<Firewall-Piercing HOWTO>, 
 at L<http://fare.tunes.org/files/fwprc/>.
+
+Look also here: L<http://gray-world.net/tools/>
 
 =back
 

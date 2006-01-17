@@ -45,6 +45,8 @@ sub is_out {
 #
 sub new_connection_on {
     my ( $self, $listener ) = @_;
+    Net::Proxy->notice(
+        'New connection on ' . Net::Proxy->get_nick($listener) );
 
     # call the actual Connector method
     my $sock = $self->accept_from($listener); # FIXME may croak
@@ -73,12 +75,26 @@ sub _out_connect_from {
     if ($peer) {    # $peer is undef for Net::Proxy::Connector::dummy
         Net::Proxy->watch_sockets($peer);
         Net::Proxy->set_connector( $peer, $self );
+        Net::Proxy->set_nick( $peer,
+                  $peer->sockhost() . ':'
+                . $peer->sockport() . ' -> '
+                . $peer->peerhost() . ':'
+                . $peer->peerport() );
+        Net::Proxy->notice( 'Connected ' . Net::Proxy->get_nick( $peer ) );
+
         Net::Proxy->set_peer( $peer, $sock );
         Net::Proxy->set_peer( $sock, $peer );
+        Net::Proxy->notice( 'Peered '
+                . Net::Proxy->get_nick($sock) . ' with '
+                . Net::Proxy->get_nick($peer) );
     }
 
     return;
 }
+
+#
+# base methods for exchanging raw data
+#
 
 # return raw data from the socket
 sub raw_read_from {
@@ -117,17 +133,40 @@ sub raw_write_to {
     return;
 }
 
+#
+# base methods for listen() and accept_from()
+#
+
 # the most basic possible listen()
 sub raw_listen {
     my $self = shift;
     my $sock = IO::Socket::INET->new(
         Listen    => 1,
-        LocalAddr => $self->{host} || 'localhost',
+        LocalAddr => $self->{host},
         LocalPort => $self->{port},
         Proto     => 'tcp',
-        ReuseAddr => 1,
     );
+
+    # this exception is not catched by Net::Proxy
+    die "Can't listen on $self->{host} port $self->{port}: $!" unless $sock;
+
+    Net::Proxy->set_nick( $sock,
+        'listener ' . $sock->sockhost() . ':' . $sock->sockport() );
+
+    return $sock;
+}
+
+# accept on a socket and return the new connected socket
+sub raw_accept_from {
+    my ($self, $listen) = @_;
+    my $sock = $listen->accept();
     die $! unless $sock;
+
+    Net::Proxy->set_nick( $sock,
+              $sock->peerhost() . ':'
+            . $sock->peerport() . ' -> '
+            . $sock->sockhost() . ':'
+            . $sock->sockport() );
 
     return $sock;
 }
@@ -227,6 +266,11 @@ This method can be used by C<Net::Proxy::Connector> subclasses in their
 C<listen()> methods, to create a listening socket on their C<host>
 and C<port> parameters.
 
+=item raw_accept_from( $socket )
+
+This method can be used internaly by C<Net::Proxy::Connector> subclasses
+in their C<accept_from()> methods, to accept a newly connected socket.
+
 =back
 
 =head1 Subclass methods
@@ -266,13 +310,17 @@ scheme.
 =item listen()
 
 Initiate listening sockets and return them.
-This method can use the C<raw_listen()> method to do the low-listen
+
+This method can use the C<raw_listen()> method to do the low-level
 listen call.
 
 =item accept_from( $socket )
 
 C<$socket> is a listening socket created by C<listen()>.
 This method returns the connected socket.
+
+This method can use the C<raw_accept_from()> method to do the low-level
+accept call.
 
 =back
 

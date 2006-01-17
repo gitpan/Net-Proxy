@@ -6,17 +6,7 @@ use t::Util;
 
 use Net::Proxy;
 
-my @lines = (
-    "swa_a_p bang swish bap crunch\n",
-    "zlonk zok zapeth crunch_eth crraack\n",
-    "glipp zwapp urkkk cr_r_a_a_ck glurpp\n",
-    "zzzzzwap thwapp zgruppp awk eee_yow\n",
-);
-my $tests = @lines;
-
-plan tests => $tests + 2;
-
-init_rand(@ARGV);
+plan tests => my $tests = 1;
 
 # lock 2 ports
 my @free = find_free_ports(2);
@@ -25,6 +15,7 @@ SKIP: {
     skip "Not enough available ports", $tests if @free < 2;
 
     my ( $proxy_port, $server_port ) = @free;
+
     my $pid = fork;
 
 SKIP: {
@@ -37,18 +28,16 @@ SKIP: {
                         type => 'tcp',
                         host => 'localhost',
                         port => $proxy_port,
-                        timeout => 1,
                     },
                     out => {
                         type => 'tcp',
                         host => 'localhost',
                         port => $server_port,
                     },
-                }
+                },
             );
 
             $proxy->register();
-
             Net::Proxy->mainloop(1);
             exit;
         }
@@ -57,31 +46,13 @@ SKIP: {
             # wait for the proxy to set up
             sleep 1;
 
-            # the parent process does the testing
-            my $listener = listen_on_port($server_port)
-                or skip "Couldn't start the server: $!", $tests;
+            # no server
             my $client = connect_to_port($proxy_port)
                 or skip "Couldn't start the client: $!", $tests;
-            my $server = $listener->accept()
-                or skip "Proxy didn't connect: $!", $tests;
 
-            # mainloop(1) limits incoming connections to 1
-            sleep 1;
-            my $client2 = connect_to_port($proxy_port);
-            is( $client2, undef, "second client fails: $!" );
-
-            for my $line (@lines) {
-
-                # anyone speaks first
-                ( $client, $server ) = random_swap( $server, $client );
-
-                # send some data through
-                print $client $line;
-                is( <$server>, $line, "Line received" );
-            }
+            # the client is actually not connected at all
+            is_closed( $client, 'peer' );
             $client->close();
-            is_closed( $server, 'peer' );
-            $server->close();
         }
     }
 }
