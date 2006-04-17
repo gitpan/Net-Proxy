@@ -28,7 +28,7 @@ SKIP: {
     # logs are sent to STDERR
     # (this is not a very nice way to spit logging info)
     # so, dup STDERR and save it to stderr.out
-    open my $olderr, ">&STDERR" or skip "Can't dup STDERR: $!", $tests;
+    open OLDERR, ">&STDERR" or skip "Can't dup STDERR: $!", $tests;
     open STDERR, '>', $err or skip "Can't redirect STDERR: $!", $tests;
     select STDERR;
     $| = 1;    # make unbuffered
@@ -54,7 +54,8 @@ SKIP: {
     Net::Proxy->info( $messages[ $i++ ] );
 
     # get the old STDERR back
-    open STDERR, ">&", $olderr or die "Can't dup \$olderr: $!";
+    open STDERR, ">&OLDERR" or die "Can't dup OLDERR: $!";
+    close OLDERR;
 
     # read stderr.out
     open my $fh, $err or skip "Unable to open $err: $!";
@@ -64,7 +65,8 @@ SKIP: {
         is( $_, "$expected[$i]\n", "Expected line $i" );
         $i++;
     }
+
+    # and remove all files
+    unlink $err;
 }
 
-# and remove all files
-unlink $err;

@@ -5,12 +5,14 @@ use Carp;
 use Scalar::Util qw( refaddr );
 use IO::Select;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 # interal socket information table
 my %SOCK_INFO;
 my %LISTENER;
-my $SELECT;
+my %CLOSING;
+my $READERS;
+my $WRITERS;
 my %PROXY;
 my %STATS;
 
@@ -20,6 +22,7 @@ my %CONNECTOR = (
     out => {},
 );
 my $VERBOSITY = 0; # be silent by default
+my $BUFFSIZE  = 16384;
 
 #
 # some logging-related methods
@@ -27,6 +30,7 @@ my $VERBOSITY = 0; # be silent by default
 sub set_verbosity { $VERBOSITY = $_[1]; }
 sub notice { return if $VERBOSITY < 1; print STDERR "$_[1]\n"; }
 sub info   { return if $VERBOSITY < 2; print STDERR "$_[1]\n"; }
+sub debug  { return if $VERBOSITY < 3; print STDERR "$_[1]\n"; }
 
 #
 # constructor
@@ -75,15 +79,19 @@ sub out_connector { return $CONNECTOR{out}{ refaddr $_[0] }; }
 # create the socket setter/getter methods
 # these are actually Net::Proxy clas methods
 #
-{
+BEGIN {
     my $n = 0;
-    for my $attr (qw( peer connector state nick )) {
+    my $buffer_id;
+    for my $attr (qw( peer connector state nick buffer )) {
         no strict 'refs';
         my $i = $n;
         *{"get_$attr"} = sub { $SOCK_INFO{ refaddr $_[1] }[$i]; };
         *{"set_$attr"} = sub { $SOCK_INFO{ refaddr $_[1] }[$i] = $_[2]; };
+        $buffer_id = $n if $attr eq 'buffer';
         $n++;
     }
+    # special shortcut
+    sub add_to_buffer { $SOCK_INFO{ refaddr $_[1] }[$buffer_id] .= $_[2]; }
 }
 
 #
@@ -111,17 +119,17 @@ sub add_listeners {
     return;
 }
 
-# this one will explode if $SELECT is undef
-sub watch_sockets {
-    my ( $class, @socks ) = @_;
-    $SELECT->add(@socks);
-    return;
-}
-
 sub close_sockets {
     my ( $class, @socks ) = @_;
 
+  SOCKET:
     for my $sock (@socks) {
+        if( my $data = Net::Proxy->get_buffer( $sock ) ) {
+            ## Net::Proxy->debug( length($data) . ' bytes left to write on ' . Net::Proxy->get_nick( $sock ) );
+            $CLOSING{ refaddr $sock} = $sock;
+            next SOCKET;
+        }
+
         Net::Proxy->notice( 'Closing ' . Net::Proxy->get_nick( $sock ) );
 
         # clean up connector
@@ -140,12 +148,35 @@ sub close_sockets {
         # clean up internal structures
         delete $SOCK_INFO{ refaddr $sock};
         delete $LISTENER{ refaddr $sock};
+        delete $CLOSING{ refaddr $sock};
 
         # clean up sockets
-        $SELECT->remove($sock);
+        $READERS->remove($sock);
+        $WRITERS->remove($sock);
         $sock->close();
     }
 
+    return;
+}
+
+#
+# select() stuff
+#
+sub watch_reader_sockets {
+    my ( $class, @socks ) = @_;
+    $READERS->add(@socks);
+    return;
+}
+
+sub watch_writer_sockets {
+    my ( $class, @socks ) = @_;
+    $WRITERS->add(@socks);
+    return;
+}
+
+sub remove_writer_sockets {
+    my ( $class, @socks ) = @_;
+    $WRITERS->remove(@socks);
     return;
 }
 
@@ -166,14 +197,15 @@ sub mainloop {
     $max_connections ||= 0;
 
     # initialise the loop
-    $SELECT = IO::Select->new();
+    $READERS = IO::Select->new();
+    $WRITERS = IO::Select->new();
 
     # initialise all proxies
     for my $proxy ( values %PROXY ) {
         my $in    = $proxy->in_connector();
         my @socks = $in->listen();
         Net::Proxy->add_listeners(@socks);
-        Net::Proxy->watch_sockets(@socks);
+        Net::Proxy->watch_reader_sockets(@socks);
         Net::Proxy->set_connector( $_, $in ) for @socks;
     }
 
@@ -186,9 +218,16 @@ sub mainloop {
     }
 
     # loop indefinitely
-    while ( $continue and my @ready = $SELECT->can_read() ) {
-    SOCKET:
-        for my $sock (@ready) {
+    while ( $continue and my @ready = IO::Select->select( $READERS, $WRITERS ) ) {
+
+        ## Net::Proxy->debug( 0+@{$ready[0]} . " sockets ready for reading" );
+        ## Net::Proxy->debug( join "\n  ", "Readers:", map { Net::Proxy->get_nick($_) } $READERS->handles() );
+        ## Net::Proxy->debug( 0+@{$ready[1]} . " sockets ready for writing" );
+        ## Net::Proxy->debug( join "\n  ", "Writers:", map { Net::Proxy->get_nick($_) } $WRITERS->handles() );
+
+        # first read
+    READER:
+        for my $sock (@{$ready[0]}) {
             if ( _is_listener($sock) ) {
 
                 # accept the new connection and connect to the destination
@@ -196,20 +235,40 @@ sub mainloop {
             }
             else {
 
-                # read the data
+                # have we read too much?
                 my $peer = Net::Proxy->get_peer($sock);
+                next READER
+                    if !$peer
+                    || length( Net::Proxy->get_buffer($peer) ) >= $BUFFSIZE;
+
+                # read the data
                 if ( my $conn = Net::Proxy->get_connector($sock) ) {
                     my $data = $conn->read_from($sock);
-                    next SOCKET if !defined $data;
+                    next READER if !defined $data;
 
                     # TODO filtering by the proxy
 
-                    Net::Proxy->get_connector($peer)->write_to( $peer, $data );
+                    if ($peer) {
+                        Net::Proxy->add_to_buffer( $peer, $data );
+                        Net::Proxy->watch_writer_sockets($peer);
+
+                        ## Net::Proxy->debug( "Will write " . length( Net::Proxy->get_buffer($peer)). " bytes to " .  Net::Proxy->get_nick( $peer ));
+                    }
                 }
             }
         }
+
+        # then write
+        for my $sock (@{$ready[1]}) {
+            my $conn = Net::Proxy->get_connector($sock);
+            $conn->write_to($sock);
+        }
+
     }
     continue {
+        if( %CLOSING ) {
+            Net::Proxy->close_sockets( values %CLOSING );
+        }
         if( $max_connections ) {
 
             # stop after that many connections
@@ -225,7 +284,7 @@ sub mainloop {
     }
 
     # close all remaining sockets
-    Net::Proxy->close_sockets( $SELECT->handles() );
+    Net::Proxy->close_sockets( $READERS->handles(), $WRITERS->handles() );
 }
 
 #
@@ -309,9 +368,17 @@ processed that many connections. Otherwise, this method does not return.
 
 Add the given sockets to the list of listening sockets.
 
-=item watch_sockets( @sockets )
+=item watch_reader_sockets( @sockets )
 
-Add the given sockets to the watch list.
+Add the given sockets to the readers watch list.
+
+=item watch_writer_sockets( @sockets )
+
+Add the given sockets to the writers watch list.
+
+=item remove_writer_sockets( @sockets )
+
+Remove the given sockets from the writers watch list.
 
 =item close_sockets( @sockets )
 
@@ -328,6 +395,13 @@ Log $message to STDERR if verbosity level is equal to C<1> or more.
 =item info( $message )
 
 Log $message to STDERR if verbosity level is equal to C<2> or more.
+
+=item debug( $message )
+
+Log $message to STDERR if verbosity level is equal to C<3> or more.
+
+(Note: throughout the C<Net::Proxy> source code, calls to C<debug()> are
+commented with C<##>.)
 
 =back
 
@@ -362,6 +436,17 @@ socket or the connection.
 
 Get or set the socket nickname. Typically used by C<Net::Proxy::Connector>
 to give informative names to socket (used in the log messages).
+
+=item get_buffer( $socket )
+=item set_buffer( $socket, $data )
+
+Get or set the content of the writing buffer for the socket.
+Used by C<Net::Proxy::Connector>, in C<raw_read_from()> and
+C<ranw_write_to()>.
+
+=item add_to_buffer( $socket, $data )
+
+Add data to the writing buffer of the socket.
 
 =back
 
@@ -541,7 +626,11 @@ possible for C<Net::Proxy> to handle it.
 Add support for filters, so that the data can be transformed on the fly
 (could be useful to deceive intrusion detection systems, for example).
 
-One callback in each direction should be enough.
+One callback in each direction should be enough (I don't want to recreate
+the whole system I did for C<HTTP::Proxy>).
+
+Martin Werthmöller sent me an interesting patch to this end:
+L<http://www.cpanforum.com/threads/1991>.
 
 =item *
 
@@ -549,6 +638,14 @@ Look for inspiration in the I<Firewall-Piercing HOWTO>,
 at L<http://fare.tunes.org/files/fwprc/>.
 
 Look also here: L<http://gray-world.net/tools/>
+
+=item *
+
+Add support for SSL/TLS connectors.
+
+Martin Werthmöller provided a full implementation of a connector than
+can handle IMAP connections and upgrade them to TLS if the client sends
+a C<STARTTLS> command.
 
 =back
 
