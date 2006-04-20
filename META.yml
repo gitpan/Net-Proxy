@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name: Net-Proxy
-version: 0.05
+version: 0.06
 author:
   - Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>.
 abstract: Framework for proxying network connections in many ways

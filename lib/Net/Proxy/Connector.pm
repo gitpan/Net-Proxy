@@ -53,6 +53,7 @@ sub new_connection_on {
     my $sock = $self->accept_from($listener); # FIXME may croak
     Net::Proxy->set_connector( $sock, $self );
     Net::Proxy->set_buffer( $sock, '' );
+    Net::Proxy->set_callback( $sock, $self->{hook} ) if $self->{hook};
     Net::Proxy->watch_reader_sockets($sock);
 
     # connect to the destination
@@ -78,6 +79,7 @@ sub _out_connect_from {
         Net::Proxy->watch_reader_sockets($peer);
         Net::Proxy->set_connector( $peer, $self );
         Net::Proxy->set_buffer( $peer, '' );
+        Net::Proxy->set_callback( $peer, $self->{hook} ) if $self->{hook};
         Net::Proxy->set_nick( $peer,
                   $peer->sockhost() . ':'
                 . $peer->sockport() . ' -> '
@@ -163,7 +165,7 @@ sub raw_listen {
         LocalAddr => $self->{host},
         LocalPort => $self->{port},
         Proto     => 'tcp',
-        ReuseAddr => 1,
+        ReuseAddr => $^O eq 'MSWin32' ? 0 : 1,
     );
 
     # this exception is not catched by Net::Proxy
