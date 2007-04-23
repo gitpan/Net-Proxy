@@ -8,10 +8,11 @@ use t::Util;
 use Net::Proxy;
 
 my @lines = (
-    "swa_a_p bang swish bap crunch\n",
-    "zlonk zok zapeth crunch_eth crraack\n",
-    "glipp zwapp urkkk cr_r_a_a_ck glurpp\n",
-    "zzzzzwap thwapp zgruppp awk eee_yow\n",
+    "oscar delta sierra echo papa\n",
+    "Laurent_Fignon Henri_Pelissier Lucien_Petit_Breton Firmin_Lambot\n",
+    "Toronto London Herzliya Melbourne Munich\n",
+    "holy_icepicks holy_corpusles holy_Luthor_Burbank holy_hyperdermics\n",
+    "Woody_Long Alicia_Rio Dorothy_Le_May Janine_Lindemulder Barbara_Summer\n",
 );
 my $tests = @lines;
 
@@ -38,14 +39,13 @@ SKIP: {
 
         my $proxy = Net::Proxy->new(
             {   in => {
-                    type          => 'ssl',
+                    type          => 'tcp',
+                    host          => 'localhost',
                     port          => $proxy_port,
                     timeout       => 1,
-                    SSL_cert_file => catfile( 't', 'test.cert' ),
-                    SSL_key_file  => catfile( 't', 'test.key' ),
                 },
                 out => {
-                    type => 'tcp',
+                    type => 'ssl',
                     host => 'localhost',
                     port => $server_port,
                 },
@@ -66,15 +66,19 @@ SKIP: {
             # wait for the proxy to set up
             sleep 1;
 
-            # start a server
-            my $listener = listen_on_port($server_port)
-                or skip "Couldn't start the server: $!", $tests;
+            # start a SSL server
+            my $listener = IO::Socket::SSL->new(
+                Listen        => 1,
+                LocalAddr     => 'localhost',
+                LocalPort     => $server_port,
+                Proto         => 'tcp',
+                SSL_cert_file => catfile( 't', 'test.cert' ),
+                SSL_key_file  => catfile( 't', 'test.key' ),
+            ) or skip "Couldn't start the server: $!", $tests;
 
             # start a client
-            my $client = IO::Socket::SSL->new(
-                PeerAddr => 'localhost',
-                PeerPort => $proxy_port
-            ) or skip "Couldn't start the client: $!", $tests;
+            my $client = connect_to_port($proxy_port)
+              or skip_fail "Couldn't start the client: $!", $tests;
 
             my $server = $listener->accept()
                 or skip "Proxy didn't connect: $!", $tests;

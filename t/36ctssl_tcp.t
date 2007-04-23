@@ -8,10 +8,13 @@ use t::Util;
 use Net::Proxy;
 
 my @lines = (
-    "swa_a_p bang swish bap crunch\n",
-    "zlonk zok zapeth crunch_eth crraack\n",
-    "glipp zwapp urkkk cr_r_a_a_ck glurpp\n",
-    "zzzzzwap thwapp zgruppp awk eee_yow\n",
+    "pete_peters sophie les mr_dork vijay\n",
+    "d_fence abacus_remote ups_onlinet d2k_datamover2 ssslog_mgr\n",
+    "Scooby_Doo Velma Freddy Daphne Shaggy\n",
+    "STARTTLS\n",
+    "Brian Florence Dougal Ermintrude Zebedee\n",
+    "ale sherry cider wine whiskey\n",
+    "Arcadio The_Witch_of_Kaan Drumm Rufferto Gravito\n",
 );
 my $tests = @lines;
 
@@ -38,11 +41,19 @@ SKIP: {
 
         my $proxy = Net::Proxy->new(
             {   in => {
-                    type          => 'ssl',
-                    port          => $proxy_port,
-                    timeout       => 1,
-                    SSL_cert_file => catfile( 't', 'test.cert' ),
-                    SSL_key_file  => catfile( 't', 'test.key' ),
+                    type            => 'ssl',
+                    port            => $proxy_port,
+                    timeout         => 1,
+                    start_cleartext => 1,
+                    SSL_cert_file   => catfile( 't', 'test.cert' ),
+                    SSL_key_file    => catfile( 't', 'test.key' ),
+                    hook            => sub {
+                        my ( $dataref, $sock, $connector ) = @_;
+                        if ( $$dataref =~ s/^STARTTLS\n// ) {
+                            print $sock "OK\n";
+                            $connector->upgrade_SSL($sock);
+                        }
+                    },
                 },
                 out => {
                     type => 'tcp',
@@ -71,18 +82,26 @@ SKIP: {
                 or skip "Couldn't start the server: $!", $tests;
 
             # start a client
-            my $client = IO::Socket::SSL->new(
-                PeerAddr => 'localhost',
-                PeerPort => $proxy_port
-            ) or skip "Couldn't start the client: $!", $tests;
-
+            my $client = connect_to_port($proxy_port)
+                or skip "Couldn't start the client: $!", $tests;
             my $server = $listener->accept()
                 or skip "Proxy didn't connect: $!", $tests;
 
+            # remember which was the original client
+            my $o_client = $client;
+
+            # exchange the data
             for my $line (@lines) {
                 ( $client, $server ) = random_swap( $client, $server );
-                print $client $line;
-                is( <$server>, $line, "Line received" );
+                if( $line eq "STARTTLS\n" ) {
+                     print $o_client $line;
+                     is( <$o_client>, "OK\n", "STARTTLS acknowledged" );
+                     IO::Socket::SSL->start_SSL($o_client);
+                }
+                else {
+                    print $client $line;
+                    is( <$server>, $line, "Line received" );
+                }
             }
             $client->close();
             is_closed( $server, 'peer' );

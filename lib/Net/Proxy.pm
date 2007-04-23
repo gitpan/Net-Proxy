@@ -5,7 +5,7 @@ use Carp;
 use Scalar::Util qw( refaddr reftype );
 use IO::Select;
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 # interal socket information table
 my %SOCK_INFO;
@@ -254,7 +254,7 @@ sub mainloop {
 
                         # run the hook on incoming data
                         my $callback = Net::Proxy->get_callback( $sock );
-                        $callback->( \$data, $conn )
+                        $callback->( \$data, $sock, $conn )
                             if $callback && defined $data;
 
                         Net::Proxy->add_to_buffer( $peer, $data );
@@ -315,8 +315,8 @@ Net::Proxy - Framework for proxying network connections in many ways
     # proxy connections from localhost:6789 to remotehost:9876
     # using standard TCP connections
     my $proxy = Net::Proxy->new(
-        {   in  => { type => tcp, port => '6789' },
-            out => { type => tcp, host => 'remotehost', port => '9876' },
+        {   in  => { type => 'tcp', port => '6789' },
+            out => { type => 'tcp', host => 'remotehost', port => '9876' },
         }
     );
 
@@ -537,11 +537,12 @@ data is I<received> on the corresponding socket.
 The code reference should have the following signature:
 
     sub callback {
-        my ($dataref, $connector) = @_;
+        my ($dataref, $sock, $connector) = @_;
         ...
     }
 
-C<$dataref> is a reference to the chunk of data received, and
+C<$dataref> is a reference to the chunk of data received,
+C<$sock> is a reference to the socket that received the data, and
 C<$connector> is the C<Net::Proxy::Connector> object that created the
 socket. This allows someone to eventually store data in a stash stored
 in the connector, so as to share data between sockets.
@@ -606,6 +607,14 @@ in that position (either C<in> or C<out>).
      ssl        | host            | host
                 | port            | port
                 | start_cleartext | start_cleartext
+    ------------+-----------------+-----------------
+     connect_ssl| N/A             | host
+                |                 | port
+                |                 | proxy_host
+                |                 | proxy_port
+                |                 | proxy_user
+                |                 | proxy_pass
+                |                 | proxy_agent
 
 C<Net::Proxy::Connector::dummy> is used as the C<out> parameter for
 a C<Net::Proxy::Connector::dual>, since the later is linked to two
@@ -704,7 +713,7 @@ that inherits from the former.
 
 =head1 COPYRIGHT
 
-Copyright 2006 Philippe 'BooK' Bruhat, All Rights Reserved.
+Copyright 2006-2007 Philippe 'BooK' Bruhat, All Rights Reserved.
  
 =head1 LICENSE
 
