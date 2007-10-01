@@ -1,10 +1,12 @@
 ---
 name: Net-Proxy
-version: 0.09
+version: 0.10
 author:
   - "Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>."
 abstract: Framework for proxying network connections in many ways
 license: perl
+resources:
+  license: http://dev.perl.org/licenses/
 requires:
   IO::Select: 0
   IO::Socket: 0
@@ -12,14 +14,10 @@ requires:
   perl: 5.6
 recommends:
   LWP::UserAgent: 2
-generated_by: Module::Build version 0.2808
-meta-spec:
-  url: http://module-build.sourceforge.net/META-spec-v1.2.html
-  version: 1.2
 provides:
   Net::Proxy:
     file: lib/Net/Proxy.pm
-    version: 0.09
+    version: 0.10
   Net::Proxy::Connector:
     file: lib/Net/Proxy/Connector.pm
   Net::Proxy::Connector::connect:
@@ -34,5 +32,7 @@ provides:
     file: lib/Net/Proxy/Connector/ssl.pm
   Net::Proxy::Connector::tcp:
     file: lib/Net/Proxy/Connector/tcp.pm
-resources:
-  license: http://dev.perl.org/licenses/
+generated_by: Module::Build version 0.2808
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.2.html
+  version: 1.2

@@ -6,7 +6,7 @@ use Scalar::Util qw( refaddr reftype );
 use IO::Select;
 use POSIX 'strftime';
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 # interal socket information table
 my %SOCK_INFO;
@@ -717,6 +717,47 @@ can handle IMAP connections and upgrade them to TLS if the client sends
 a C<STARTTLS> command. My implementation will split this in two parts
 C<Net::Proxy::Connector::ssl> and C<Net::Proxy::Connector::starttls>,
 that inherits from the former.
+
+=back
+
+=head1 SUPPORT
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc Net::Proxy
+
+You can also look for information at:
+
+=over 4
+
+=item * The Net::Proxy mailing-list
+
+L<http://listes.mongueurs.net/mailman/listinfo/net-proxy/>
+
+This list receive an email for each commit
+
+=item * The public source repository
+
+svn://svn.mongueurs.net/Net-Proxy/trunk/
+
+Also available through a web interface at
+L<http://svnweb.mongueurs.net/Net-Proxy>
+
+=item * AnnoCPAN: Annotated CPAN documentation
+
+L<http://annocpan.org/dist/Net-Proxy>
+
+=item * CPAN Ratings
+
+L<http://cpanratings.perl.org/d/Net-Proxy>
+
+=item * RT: CPAN's request tracker
+
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Net-Proxy>
+
+=item * Search CPAN
+
+L<http://search.cpan.org/dist/Net-Proxy>
 
 =back
 
