@@ -3,12 +3,8 @@ use strict;
 use Getopt::Long;
 use Net::Proxy;
 
-use vars qw( %CONF $VERSION );
-
-$VERSION = 0.04;
-
 # default values
-%CONF = (
+our %CONF = (
     port    => 'localhost:443',
     timeout => 2,
     ssh     => 'localhost:22',
@@ -89,6 +85,8 @@ $proxy->register();
 Net::Proxy->mainloop();
 
 __END__
+
+=encoding utf-8
 
 =head1 NAME
 
@@ -194,7 +192,7 @@ speaks first for the other).
 
 =item Original idea and C version
 
-Frédéric Plé C<< <sslh@wattoo.org> >>.
+FrÃ©dÃ©ric PlÃ© C<< <frederic.ple+sslh@gmail.com> >>.
 
 =item Perl versions
 
@@ -221,7 +219,7 @@ L<Net::Proxy>, L<Net::Proxy::Connector::dual>.
 
 =head1 COPYRIGHT
 
-Copyright 2003-2006, Philippe Bruhat. All rights reserved.
+Copyright 2003-2008, Philippe Bruhat. All rights reserved.
 
 =head1 LICENSE
 

@@ -1,4 +1,5 @@
 package Net::Proxy::Connector::dummy;
+$Net::Proxy::Connector::dummy::VERSION = '0.13';
 use strict;
 use warnings;
 

@@ -1,4 +1,5 @@
 package Net::Proxy::Connector::ssl;
+$Net::Proxy::Connector::ssl::VERSION = '0.13';
 use strict;
 use warnings;
 
@@ -171,15 +172,15 @@ The connector accept the following options:
 
 =over 4
 
-=item * host
+=item host
 
 The listening address. If not given, the default is C<localhost>.
 
-=item * port
+=item port
 
 The listening port.
 
-=item * start_cleartext
+=item start_cleartext
 
 If true, the connection will start in cleartext.
 It is possible to upgrade a socket to using SSL with
@@ -191,15 +192,15 @@ the C<upgrade_SSL()> method.
 
 =over 4
 
-=item * host
+=item host
 
 The listening address. If not given, the default is C<localhost>.
 
-=item * port
+=item port
 
 The listening port.
 
-=item * start_cleartext
+=item start_cleartext
 
 If true, the connection will start in cleartext.
 It is possible to upgrade a socket to using SSL with
@@ -209,16 +210,14 @@ the C<upgrade_SSL()> method.
 
 =head1 METHODS
 
-The C<Net::Proxy::Connector::ssl> connector has an extra method:
+The Net::Proxy::Connector::ssl connector has an extra method:
 
-=over 4
+=head2 upgrade_SSL
 
-=item upgrade_SSL( $sock )
+    $connector->upgrade_SSL( $sock )
 
 This method will upgrade a cleartext socket to SSL.
 If the socket is already in SSL, it will C<carp()>.
-
-=back
 
 =head1 CREATING A SELF-SIGNED CERTIFICATE
 
@@ -255,7 +254,7 @@ Philippe 'BooK' Bruhat, C<< <book@cpan.org> >>.
 
 =head1 COPYRIGHT
 
-Copyright 2006 Philippe 'BooK' Bruhat, All Rights Reserved.
+Copyright 2006-2014 Philippe 'BooK' Bruhat, All Rights Reserved.
 
 =head1 LICENSE
 
